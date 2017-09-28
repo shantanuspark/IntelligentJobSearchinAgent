@@ -3,7 +3,9 @@ An intelligent agent built using python to scrape data from the job websites and
 
 Steps to run the program:
 Run the python file ‘shantanu_deshmukh_career_job.py’, it will open an intuitive command line user interface as below:
+
 <img src="https://github.com/shantanuspark/IntelligentJobSearchinAgent/blob/master/input.png" />
+
 
 Enter appropriate values for each option.
 First option asks for the search key word.
