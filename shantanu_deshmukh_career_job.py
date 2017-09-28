@@ -5,18 +5,23 @@ Created on Sep 21, 2017
 
 '''
 
-import urllib2
-from bs4 import BeautifulSoup
-import time
-import threading
-import re
-import math
-import operator
-import os
-import webbrowser
-import string
-import pickle
-from _codecs import lookup
+# For safe imports
+libnames = ['urllib2', 'bs4', 'time', 'threading', 're', 'math', 'operator', 'os', 'webbrowser', 'string', 'pickle', 'random']
+terminate = False
+for libname in libnames:
+    try:
+        lib = __import__(libname)
+    except:
+        print 'Module '+libname+' not found. Please install it and re-run the program.\n'
+        terminate = True
+    else:
+        globals()[libname] = lib
+
+if terminate:
+    exit()
+    
+BeautifulSoup = bs4.BeautifulSoup
+randint = random.randint
 
 
 '''
@@ -207,6 +212,9 @@ class fetchPaginationJobs (threading.Thread):
 
 
 class Table(object):
+    '''
+    Table built using dictionary
+    '''
     def __init__(self):
         self.key2rowsMap = {}
 
@@ -240,6 +248,24 @@ def cosineDistance(rowVector, searchRowVector):
     
     return 1 - round(numerator / (math.sqrt(denominatorS) * math.sqrt(denominatorR )), 5)
 
+def vectorAddition(vector1, vector2):
+    '''
+    Adds vector 1 and vector 2
+    '''
+    resultVector = vector1
+    for word in vector2.keys():
+        if resultVector.has_key(word):
+            resultVector[word]+=vector2[word]
+        else:
+            resultVector[word]=vector2[word]
+    
+    return resultVector
+
+def divideVector(vector,divider):
+    for word in vector.keys():
+        vector[word]/=divider
+    return vector
+
 #threadLock, scrappedData list and inDepthSearch threads list defined
 threadLock = threading.Lock()
 dataRows = []
@@ -260,10 +286,27 @@ def cleanText(text):
 
     return re.sub("[,.;@#?:/\-+!&()$]+\ *"," ",text.encode('ascii','ignore')).lower()
 
-
-def htmlOutputer(resultJobs, keyword, time):
+def calculateTermination(centroids, n, itr):
     '''
-    Outputs the job results in html format
+    Find the terminating condition by comparing distance of existing centroid with its previous iteration counterpart
+    ''' 
+    distance = 0
+    for clusterID in range(n):
+        #get the id of last centroid
+        backId = len(centroids) - clusterID - 1
+        #calculate sum of distances of each centroid with their older counterparts in the previous iteration
+        distance += cosineDistance(centroids[backId + n*itr], centroids[backId-n + n*itr])
+    
+    #getting the mean distance of movement of each centroid
+    distance /= n
+    if distance < 0.01:
+        return True
+    else:
+        return False
+
+def htmlOutputer(resultJobs, keyword, time, isClustered, clusters):
+    '''
+    Outputs the job results in the html format
     '''
     outputFile = open("testfile.html","w") 
      
@@ -277,7 +320,7 @@ def htmlOutputer(resultJobs, keyword, time):
         <title>Intelligent Search Agent</title>
         
         <!-- Bootstrap -->
-        <link href="bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
     
       </head>
       <body>
@@ -285,24 +328,67 @@ def htmlOutputer(resultJobs, keyword, time):
             <div class="page-header">
               <h1>Job and Career Search <small>Intelligent Agent</small></h1>
             </div>"""
-            
-    successAlert = """<div class="alert alert-success" role="alert"> """+repr(len(resultJobs))+" top matching '"+keyword+"""' jobs found in """+repr(round(time,2))+""" seconds </div>"""
+    
+    if time < 0.2:
+        if not isClustered:        
+            successAlert = """<div class="alert alert-success" role="alert"> """+repr(len(resultJobs))+" top matching '"+keyword+"""' jobs fetched from the lookup table in """+repr(round(time,2))+""" seconds </div>"""
+        else:
+            successAlert = """<div class="alert alert-success" role="alert"> """+repr(len(resultJobs))+" top matching '"+keyword+"""' jobs fetched from the lookup table in """+repr(round(time,2))+""" seconds </div> <div class="alert alert-info" role="alert">Similar jobs are grouped together</div>"""
+        
+    else:
+        if not isClustered:        
+            successAlert = """<div class="alert alert-success" role="alert"> """+repr(len(resultJobs))+" top matching '"+keyword+"""' jobs scrapped over the internet in """+repr(round(time,2))+""" seconds </div>"""
+        else:
+            successAlert = """<div class="alert alert-success" role="alert"> """+repr(len(resultJobs))+" top matching '"+keyword+"""' jobs scrapped over the internet in """+repr(round(time,2))+""" seconds </div> <div class="alert alert-info" role="alert">Similar jobs are grouped together</div>"""
+        
     
     jobSearch = {}
-    i = 0
-    for job in resultJobs:
+    if not isClustered:
+        i = 0
+        for job in resultJobs:
+                    jobSearch[i] = """
+                    <div class="panel panel-default">
+                      <div class="panel-heading">
+                        <a href='"""+job["url"]+"""'  target="_blank"><h3 class="panel-title">"""+string.capwords(job["title"])+"""</h3></a>
+                      </div>
+                      <div class="panel-body">
+                        """+job["desc"]+"""<a href='"""+job["url"]+"""'  target="_blank">...more info</a>
+                      </div>
+                    </div> """
+                    i+=1
+    else:
+        oldClusterid = 0
+        i=0
+        jobSearch[i] = "<div class='well well-lg'> <h4>Cluster "+repr(i + 1)+"</h4>"
+        for job in resultJobs:
+            # Using mod to get exact cluster ids(i.e. getting rid of the multiple iteration value 'k' used while creating cluster)
+            if job["centroid"]%clusters != oldClusterid:
+                jobSearch[i] = "</div><div class='well well-lg'><h4>Cluster "+repr(job["centroid"]%clusters + 1)+"</h4>"
+                oldClusterid = job["centroid"]%clusters
+            try:
+                jobSearch[i] = jobSearch[i]+"""
+                        <div class="panel panel-warning">
+                          <div class="panel-heading">
+                            <a href='"""+job["url"]+"""'  target="_blank"><h3 class="panel-title">"""+string.capwords(job["title"])+"""</h3></a>
+                          </div>
+                          <div class="panel-body">
+                            """+job["""desc"""]+"""<a href='"""+job["""url"""]+"""'  target="_blank">...more info</a>
+                          </div>
+                        </div> """
+            except KeyError:
                 jobSearch[i] = """
-                <div class="panel panel-default">
-                  <div class="panel-heading">
-                    <a href='"""+job["url"]+"""'  target="_blank"><h3 class="panel-title">"""+string.capwords(job["title"])+"""</h3></a>
-                  </div>
-                  <div class="panel-body">
-                    """+job["desc"]+"""<a href='"""+job["url"]+"""'  target="_blank">...more info</a>
-                  </div>
-                </div> """
-                i+=1
-            
-    htmlfooter="""<div class="alert alert-warning" role="alert"> Go back to the python console to continue job search..</div>
+                        <div class="panel panel-warning">
+                          <div class="panel-heading">
+                            <a href='"""+job["url"]+"""'  target="_blank"><h3 class="panel-title">"""+string.capwords(job["title"])+"""</h3></a>
+                          </div>
+                          <div class="panel-body">
+                            """+job["""desc"""]+"""<a href='"""+job["""url"""]+"""'  target="_blank">...more info</a>
+                          </div>
+                        </div> """
+            i+=1
+                
+                
+    htmlfooter="""</div><div class="alert alert-warning" role="alert"> Go back to the python console to continue job search..</div>
             
         </div>
       </body>
@@ -317,7 +403,6 @@ def htmlOutputer(resultJobs, keyword, time):
     webbrowser.open_new_tab('file://' + os.path.realpath("testfile.html"))
      
     outputFile.close()    
-
 
 class Agent(object):
     '''
@@ -344,10 +429,10 @@ class Agent(object):
         #Check if lookup table already has the result computed
         try:
             lookupTableResult = lookupTable.getRow(self.searchKey)
-            if lookupTableResult["k"] > self.k and lookupTableResult["timeStamp"] - time.time() < 86400:
+            if lookupTableResult["k"] >= self.k and lookupTableResult["timeStamp"] - time.time() < 86400:
                 return lookupTableResult["resultJobs"][0:self.k]
         except KeyError:
-            print "Searching over the internet.."
+            print "\nScratching data over the internet.."
         
         #create threads for each site
         indeedFetch = fetchJobs("indeed",self.urlsConstant,self.searchKey,self.grabDataTillResultPage)
@@ -371,7 +456,7 @@ class Agent(object):
         done = time.time()
         elapsed = done - self.start
         
-        print repr(len(dataRows)) + " jobs fetched in "+repr(round(elapsed,2))+" seconds, finding the best match for you..";
+        print repr(len(dataRows)) + " jobs fetched in "+repr(round(elapsed,2))+" seconds, finding the best match for you..\n";
         
         if len(dataRows) == 0:
             return dataRows
@@ -487,36 +572,51 @@ class Environment(object):
             '''
             Display Menu
             '''
-            try:
-                searchKey = raw_input("Enter your search string \n")
-                self.searchKey = searchKey.replace(' ', '+').lower()
-                k = int(raw_input("\nEnter no. of results you want to display (value of k) \n"))
-                clusteringMode = 1
-                advancedOptions = 1
-                while True:
-                    advancedOptions = int(raw_input("\nDo you want to edit advanced options like clustering and data scrapping depth?\n1. No\n2. Yes\n"))
-                    if advancedOptions == 2:
-                        self.grabDataTillResultPage = int(raw_input("\nEnter no. of (paginated)results pages in result to be scraped (more pages results in more time)\n"))
-                        while True:
-                            clusteringMode = int(raw_input("\nDo you want to me cluster jobs as well?\n1.Yes\n2.No\n"))
-                            if clusteringMode == 1:
-                                #Cluster mode set, making k as 100 so that we have 100 records to cluster
-                                k = 100
-                                
-                                break
-                            elif clusteringMode == 2:
-                                break
-                            else:
-                                print "Wrong input encountered, kindly enter correct values.."
-                        break
-                    elif advancedOptions == 1:
-                        break
-                    else:
-                        print "Wrong input encountered, kindly enter correct values.."
-                    
-            except:
-                print "Wrong input encountered, kindly enter correct values.."   
-            
+            # Infinite loop to handle user input errors
+            while 1:
+                try:
+                    searchKey = raw_input("Enter your search string \n")
+                    self.searchKey = searchKey.replace(' ', '+').lower()
+                    k = int(raw_input("\nEnter no. of results you want to display (value of k) \n"))
+                    clusteringMode = 0
+                    advancedOptions = 1
+                    clusters = 0
+                    while True:
+                        advancedOptions = int(raw_input("\nEdit advanced options (clustering and data scrapping depth)?\n1. No\n2. Yes\n"))
+                        if advancedOptions == 2:
+                            while True:
+                                clusteringMode = int(raw_input("\nDo you want similar jobs to be grouped together(Enable clustering)?\n1.Yes\n2.No\n"))
+                                if clusteringMode == 1:
+                                    while True:
+                                        clusters = int(raw_input("\nEnter the no. of clusters\n"))
+                                        if clusters >= k:
+                                            print "\nNo. of clusters should be less then the value of k, kindly enter correct value\n"
+                                        else:
+                                            break
+                                    break
+                                elif clusteringMode == 2:
+                                    break
+                                else:
+                                    print "Wrong input encountered, kindly enter correct value.."
+                            self.grabDataTillResultPage = int(raw_input("\nEnter no. of (paginated)results pages in result to be scraped (more pages results in more time)\n"))
+                            while True:
+                                clearLookupTable = int(raw_input("\nClear lookup table? 1.Yes 2.No\n"))
+                                if clearLookupTable == 1:
+                                    lookupTable = Table()
+                                    break
+                                elif clearLookupTable == 2:
+                                    break
+                                else:
+                                    print "Wrong input encountered, kindly enter correct value.." 
+                            break
+                        elif advancedOptions == 1:
+                            break
+                        else:
+                            print "Wrong input encountered, kindly enter correct values.."
+                    break
+                except:
+                    print "Wrong input encountered, kindly enter correct values.."   
+                
             start = time.time()
             
             #Create agent using k, the search string and other parameters
@@ -528,16 +628,89 @@ class Environment(object):
             done = time.time()
             elapsed = done - start
             
-            if len(resultJobs) > 0:
-            #Print output in browser
-                htmlOutputer(resultJobs, searchKey, elapsed)
-                print "\nKindly open url -> "+'file://' + os.path.realpath("testfile.html") + " in browser to view results\n"
-                
-                print repr(len(resultJobs)) + " jobs fetched in "+repr(round(elapsed,2))+" seconds !!";
+            if elapsed > 0.2:
+                print repr(len(resultJobs)) + " jobs fetched from the lookup table in "+repr(round(elapsed,2))+" seconds !!"
             else:
-                print "\nSorry, no jobs found with entered string\n"
+                print repr(len(resultJobs)) + " jobs fetched in "+repr(round(elapsed,2))+" seconds !!"
+            
+            if clusteringMode != 1:
+                if len(resultJobs) > 0:
+                #Print output in browser
+                    htmlOutputer(resultJobs, searchKey, elapsed, False, clusters)
+                    print "\nKindly open url -> "+'file://' + os.path.realpath("testfile.html") + " in browser to view results\n"
+                    
+                else:
+                    print "\nSorry, no jobs found with entered string\n"
                 
+            else:
+                centroids = {}
+                tempIndexes = []
+                
+                #randomly select initial centroids
+                for key in range(clusters):
+                    while True:
+                        jobIndex = randint(1, len(resultJobs)-1)
+                        if not tempIndexes.__contains__(jobIndex):
+                            break
+                    tempIndexes.append(jobIndex)
+                    centroids[key] = resultJobs[jobIndex]["tfidfVector"]
+                
+                itr = 0;
+                while True:
+                    
+                    #Find distance of each job from the centroid
+                    for centroid in centroids.keys():
+                        for job in resultJobs:
+                            job[centroid] = cosineDistance(centroids[centroid], job["tfidfVector"])
+                    
+                    #Assign the closest centroid as the centroid for each job
+                    for job in resultJobs:
+                        minVal = 9
+                        for key in centroids.keys():
+                            if job[key] <= minVal:
+                                minVal = job[key]
+                                job["centroid"] = key       
+                    
+                    resultJobs = sorted(resultJobs, key=operator.itemgetter("centroid"))
+                    
+                    #Find mean vector for each centroid group and add new centroid
+                    centroidCount = {}
+                    for row in resultJobs:
+                        try:
+                            #compute vector addition and count of rows in each vector
+                            centroids[clusters+row["centroid"]] = vectorAddition(row["tfidfVector"], centroids[clusters+row["centroid"]])
+                            centroidCount[clusters+row["centroid"]] += 1
+                        except KeyError:
+                            centroids[clusters+row["centroid"]] = vectorAddition(row["tfidfVector"], centroids[row["centroid"]])  
+                            centroidCount[clusters+row["centroid"]] = 1  
+                    #get mean by dividing vector addition of all jobs of a centroid by count of all jobs of that centroid
+                    for centroidId in centroidCount:
+                        centroids[centroidId] = divideVector(centroids[centroidId],centroidCount[centroidId])
+                    
+                    #evaluate the termination condition
+                    if calculateTermination(centroids, clusters, itr):
+                        break
+                    
+                    #remove old centroids
+                    for i in range(clusters):
+                        centroids.pop(i + (itr*clusters))
+                    #maximize distance of old centroids in each job
+                    for row in resultJobs:
+                        for i in range(clusters):
+                            row[i+(itr*clusters)] = 9
+                        
+                    itr+=1
+                    
+                if len(resultJobs) > 0:
+                #Print output in browser
+                    htmlOutputer(resultJobs, searchKey, elapsed, True, clusters)
+                    print "\nKindly open url -> "+'file://' + os.path.realpath("testfile.html") + " in browser to view results\n"
+                    
+                else:
+                    print "\nSorry, no jobs found with entered string\n"
+                            
             exitInput = raw_input("\nEnter e to exit.. Enter any other key to rerun..\n")
+            
             if exitInput == 'e':
                 print "THANK YOU !!"
                 #Persist the lookup table
