@@ -16,15 +16,15 @@ Last option is to clear up the lookup table(cache).
 Output of the program looks is as below:
 <img src="https://github.com/shantanuspark/IntelligentJobSearchinAgent/blob/master/output.png" />
 
-Features implemented in the program:
-•	String documents represented as tf-idf vectors
-•	Llyod’s algorithm used to group similar jobs
-•	Distance calculations done using cosine distance
-•	Command-line user interface
-•	Lookup/cache table used so as to avoid scraping the data on each search
-•	Only External library used is BeautifulSoup
-•	kNN algorithm used to find nearest matches
-•	Persisting the table on every run, so that the table is prebuilt in next iterations
-•	Timestamp protection to avoid stale data in the prebuilt table
-•	Output of the program is in HTML
-
+Features implemented in the program:<ul><li>
+•	String documents represented as tf-idf vectors</li><li>
+•	Llyod’s algorithm used to group similar jobs</li><li>
+•	Distance calculations done using cosine distance</li><li>
+•	Command-line user interface</li><li>
+•	Lookup/cache table used so as to avoid scraping the data on each search</li><li>
+•	Only External library used is BeautifulSoup</li><li>
+•	kNN algorithm used to find nearest matches</li><li>
+•	Persisting the table on every run, so that the table is prebuilt in next iterations</li><li>
+•	Timestamp protection to avoid stale data in the prebuilt table</li><li>
+•	Output of the program is in HTML</li>
+</ul>
